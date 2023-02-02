@@ -1,0 +1,639 @@
+---
+title: "Final Project"
+author: "Jessica Crum & Luc Pardehpoosh"
+date: "11/29/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+## read data and convert candidate names and party names from string to factor
+## we manually remove the variable "won", the indicator of county level winner
+
+election.raw <- read_csv("candidates_county.csv", col_names = TRUE) %>% 
+  mutate(candidate = as.factor(candidate), party = as.factor(party), won = NULL)
+
+## remove the word "County" from the county names
+words.to.remove = c("County")
+remove.words <- function(str, words.to.remove){
+  sapply(str, function(str){
+    x <- unlist(strsplit(str, " "))
+    x <- x[!x %in% words.to.remove]
+    return(paste(x, collapse = " "))
+  }, simplify = "array", USE.NAMES = FALSE)
+}
+election.raw$county <- remove.words(election.raw$county, words.to.remove)
+
+## read census data
+census <- read_csv("census_county.csv") 
+```
+
+1.
+```{r}
+dim(election.raw)
+# There are 32,177 rows and 5 variables
+which(is.na(election.raw))
+# There are no missing values
+n_distinct(election.raw$state)
+# We can see every state plus the district of Columbia is accounted for in the set, for a total of 51
+```
+
+2. 
+```{r}
+dim(census)
+# There are 3,220 rows and 37 variables
+apply(is.na(census), 2, which)
+# There is a missing value in Child Poverty at index 549
+county_census <- n_distinct(census$County)
+county_census
+# There are 1,955 unique counties
+
+county_election <- n_distinct(election.raw$county)
+county_census-county_election
+# There are 870 more counties in the Election data set than the census dataset
+```
+
+3.
+```{r}
+# state-level dataset
+
+election.state = subset(election.raw, select = -c(county))
+election.state = aggregate(total_votes~.,election.state,FUN=sum)
+
+election.state
+
+# Federal level dataset
+election.total = subset(election.state, select = -c(state))
+election.total = aggregate(total_votes~., election.total, FUN=sum)
+
+election.total
+```
+
+4.
+```{r}
+
+n_distinct(election.total$candidate)
+# 38 named candidates in this election
+
+# two plots, 19 of the top voted candidates and 19 of the least voted candidates
+election.total.sorted <- arrange(election.total, desc(total_votes))
+upper=head(election.total.sorted ,19)
+lower = tail(election.total.sorted, 19)
+
+up <- ggplot(data=upper, aes(x=candidate, y=total_votes, fill=candidate)) + geom_bar(stat='identity') + 
+  scale_y_continuous(trans='log2') + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+ ggtitle('Log2 Transformation of Votes for Top 19 2020 Presidential Candidates')
+up
+
+low <- ggplot(data=lower, aes(x=candidate, y=total_votes, fill=candidate)) + geom_bar(stat='identity') + 
+  scale_y_continuous(trans='log2') + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+ggtitle('Log2 Transformation of Votes for Bottom 19 2020 Presidential Candidates') 
+
+low
+
+```
+### finish adding x & y labels and title
+
+5.
+```{r}
+county.winner_add_total <- election.raw %>% group_by(county) %>% 
+   mutate(total = sum(total_votes)) %>% 
+  mutate(pct = ((total_votes)/total))
+
+
+
+county.winner<-top_n(county.winner_add_total, 1)
+
+
+
+state.winner_add_total2 <- election.raw %>% group_by(state) %>% 
+   mutate(total = sum(total_votes)) %>%
+  ungroup()
+  
+state.winner_add_total2 <-  select(state.winner_add_total2,-county) 
+
+state.winner_add_total3 <- state.winner_add_total2 %>% group_by(state, candidate) %>% 
+   mutate(total_state_candidate = sum(total_votes)) %>%
+  mutate(pct = total_state_candidate/total) %>%
+  ungroup()  %>% 
+  distinct(state,candidate, .keep_all = TRUE) %>%
+  group_by(state)
+
+
+state.winner<-top_n(state.winner_add_total3, 1)
+
+```
+
+
+6.
+```{r}
+states <- map_data("state")
+
+ggplot(data = states) + 
+  geom_polygon(aes(x = long, y = lat, fill = region, group = group),
+               color = "white") + 
+  coord_fixed(1.3) +
+  guides(fill=FALSE) 
+
+county <- map_data("county")
+
+ggplot(data = county) + 
+  geom_polygon(aes(x = long, y = lat, fill = region, group = group),
+               color = "white") + 
+  coord_fixed(1.3) +
+  guides(fill=FALSE) 
+```
+
+7.
+```{r}
+states = states %>% rename(state = region)
+
+states$state<-toupper(states$state)
+state.winner$state <- toupper(state.winner$state)
+
+
+states_with_winner = left_join(states, state.winner)
+
+
+ggplot(data = states_with_winner) + 
+  geom_polygon(aes(x = long, y = lat, fill = candidate, group = group),
+               color = "white") + 
+  coord_fixed(1.3) +
+  guides(fill=FALSE)  # color legend is unnecessary and takes too long
+```
+8. 
+```{r}
+library(ggplot2)
+library(dplyr)
+library(Hmisc)
+
+counties <- map_data("county")
+
+counties = counties %>% rename(county = subregion)
+counties = counties %>% rename(state = region)
+
+counties$county<-capitalize(counties$county)
+
+counties$county <- toupper(counties$county)
+county.winner$county <- toupper(county.winner$county)
+
+
+counties_with_winner = left_join(counties, county.winner, 'county'='county','state'='state')
+
+cali_counties_with_winner = counties_with_winner[which(counties_with_winner$region == "california"), ]
+
+ggplot(data = cali_counties_with_winner) + 
+  geom_polygon(aes(x = long, y = lat, fill = candidate, group = group),
+               color = "white") + 
+  coord_fixed(1.3) +
+  guides(fill=FALSE)  # color legend is unnecessary and takes too long
+
+```
+
+9. 
+Below is a histogram that displays the Voting Participation per County in California and which candidate won that particular county.
+
+```{r, echo=FALSE}
+
+# Cleaning counties_with_winner to join with census
+counties_with_winner_ = counties_with_winner %>% rename(County = county, State=region)    
+
+counties_with_winner_$County = toupper(counties_with_winner_$County)
+
+# Drop Unnecessary variables so we can compress to one row per county
+counties_with_winner_ = select(counties_with_winner_,-order, -lat,-long, -state)
+
+# Drop duplicated rows and sort by State then County
+counties_with_winner_ = counties_with_winner_ %>% distinct(County,State, .keep_all = TRUE) %>%
+  arrange(State, County)
+
+counties_with_winner_$State<-capitalize(counties_with_winner_$State)
+
+# Cleaning census for the join
+census_join = census %>%
+    mutate(County = str_remove_all(County, " County")) %>%
+    arrange(State, County) 
+
+
+census_join$County = toupper(census_join$County)
+counties_with_winner_$County = toupper(counties_with_winner_$County)
+
+
+# Join on County and State   
+counties_winner_with_census =  left_join(counties_with_winner_,census_join, by=c('County'='County', 'State'='State'))
+
+# Create Voting Participation Variable
+counties_winner_with_census = counties_winner_with_census %>%
+    mutate(voting_participation = 100*(total/VotingAgeCitizen))
+
+# Selecting California Counties
+CA_counties_winner_with_census = counties_winner_with_census[which(counties_winner_with_census$State == "California"), ]
+
+CA_counties_winner_with_census <- subset(CA_counties_winner_with_census, County!='KINGS' & County!='LAKE' & County!='SIERRA' & County!="ORANGE" & County!="TRINITY" )
+
+ggplot(data=CA_counties_winner_with_census, aes(x=County, y=voting_participation, fill=candidate))+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + geom_bar(stat='identity') + ggtitle("Percentage of Voting Participation and Winning Candidate by California County")
+
+```
+10.
+```{r}
+census.clean <- na.omit(census)
+# Check that there are no NA's
+apply(is.na(census.clean), 2, which)
+
+census.clean <- census.clean %>%
+  mutate(Men = Men/TotalPop,
+         Employed=Employed/TotalPop,
+         VotingAgeCitizen=VotingAgeCitizen/TotalPop) %>%
+  mutate(Minority = Hispanic + Black + Native + Asian + Pacific) %>%
+  select(-c(Hispanic,Black:Pacific, IncomeErr:IncomePerCapErr,Walk, PublicWork, Construction))
+
+head(census.clean,5)
+
+```
+
+11.
+```{r}
+
+census_nostate_county <- census.clean %>% select(-c(State,County))
+pc.out=prcomp(census_nostate_county, scale=TRUE, center = TRUE)
+
+pc.df=as.data.frame(pc.out$rotation)
+
+pc.county = pc.df %>% select(1:2)
+
+# The three largest abs values of PC1
+pc.county = pc.county %>%
+  arrange((abs(PC1)))
+
+tail(pc.county,3)
+```
+
+We chose to center and scale the variables for PCA because features must be centered prior to running PCA.
+Since several of our features are on different scales, such as frequency vs. percentage, scaling was appropriate in this case.
+
+We can see the Employed variable has an opposite sign as ChildPoverty and Poverty, which implies a negative correlation between these variables. ChildPoverty and Poverty have the same sign, which implies a positive correlation between them.
+
+12.
+```{r}
+pr.var=pc.out$sdev^2
+pve=pr.var/sum(pr.var)
+
+cumsum(pve)[13]
+```
+
+We need 13 PC's to capture 90% of variance for analysis
+
+```{r}
+# Plot Proportion of Variance Explained
+plot(pve, xlab="Principal Component", 
+     ylab="Proportion of Variance Explained ", ylim=c(0,1),type='b')
+
+# Plot cumulative PVE
+plot(cumsum(pve), xlab="Principal Component ", 
+     ylab=" Cumulative Proportion of Variance Explained ", ylim=c(0,1), type='b')
+
+```
+13.
+```{r}
+# Euclidian Distance
+census_dist <- dist(census_nostate_county)
+
+# Hierarchal Clustering
+set.seed(1)
+census.hclust = hclust(census_dist)
+
+# Cut the tree to partition into 10 clusters
+clus = cutree(census.hclust, 10)
+table(clus)
+
+pc.dist <- dist(pc.county)
+
+# Rerun Hierarchical Clustering but with PC1 and PC2 as inputs
+pcs.hclust <- hclust(pc.dist)
+pc.clus <- cutree(pcs.hclust,10)
+```
+
+
+
+```{r}
+# Plot dendogram
+plot(clus, main='Default from hclust')
+# Add a horizontal line at a certain height
+abline(h=6, col="red", lty=2)
+abline(h=3.5, col="green", lty=2)
+
+# Plot dendogram
+plot(pc.clus, main='Default from hclust')
+# Add a horizontal line at a certain height
+abline(h=6, col="red", lty=2)
+abline(h=3.5, col="green", lty=2)
+
+```
+
+### Need to finish 13 writing up
+
+14.
+```{r}
+# we move all state and county names into lower-case
+tmpwinner <- county.winner %>% ungroup %>%
+  mutate_at(vars(state, county), tolower)
+
+# we move all state and county names into lower-case
+# we further remove suffixes of "county" and "parish"
+tmpcensus <- census.clean %>% mutate_at(vars(State, County), tolower) %>%
+  mutate(County = gsub(" county|  parish", "", County)) 
+
+# we join the two datasets
+election.cl <- tmpwinner %>%
+  left_join(tmpcensus, by = c("state"="State", "county"="County")) %>% 
+  na.omit
+
+# drop levels of county winners if you haven't done so in previous parts
+election.cl$candidate <- droplevels(election.cl$candidate)
+
+## save meta information
+election.meta <- election.cl %>% select(c(county, party, CountyId, state, total_votes, pct, total))
+
+## save predictors and class labels
+election.cl = election.cl %>% select(-c(county, party, CountyId, state, total_votes, pct, total))
+
+```
+
+We have to remove party from census.cl because party would clearly be the main predictor in voting for presidential candidate above all other variables, which is not the question we would like to answer. We want to know if county census data can predict which candidate won in that county, so we should remove party.
+
+15.
+```{r}
+set.seed(10) 
+n <- nrow(election.cl)
+idx.tr <- sample.int(n, 0.8*n) 
+election.tr <- election.cl[idx.tr, ]
+election.te <- election.cl[-idx.tr, ]
+
+#Use the following code to define 10 cross-validation folds:
+
+set.seed(20) 
+nfold <- 10
+folds <- sample(cut(1:nrow(election.tr), breaks=nfold, labels=FALSE))
+
+#Using the following error rate function. And the object records is used to record the classification performance of each method in the subsequent problems.
+
+calc_error_rate = function(predicted.value, true.value){
+  return(mean(true.value!=predicted.value))
+}
+records = matrix(NA, nrow=3, ncol=2)
+colnames(records) = c("train.error","test.error")
+rownames(records) = c("tree","logistic","lasso")
+
+
+```
+
+```{r}
+library(tree)
+library(maptree)
+# Train a decision tree by cv.train
+tree.election = tree(candidate~.-candidate, data = election.tr) 
+cv = cv.tree(tree.election, FUN=prune.misclass, K=folds)
+
+cv$size
+cv$dev
+
+# Print the best cv
+best.cv = min(cv$size[cv$dev == min(cv$dev)])
+best.cv
+
+# Prune tree.election
+pt.cv = prune.misclass(tree.election, best=best.cv)
+
+
+# Visualize Tree prior to Pruning
+draw.tree(tree.election, nodeinfo=TRUE, cex = 0.4)
+title("Classification Tree Built on Training Set")
+
+# Visualize Tree After Pruning
+plot(pt.cv)
+text(pt.cv, pretty=0, col = "blue", cex = .5)
+title("Pruned tree of size 11")
+```
+
+
+
+```{r}
+# Training Error Rate
+pred.pt.cv.tr <- predict(pt.cv,election.tr, type='class')
+error.pt.cv.tr <- calc_error_rate(pred.tr,election.tr$candidate)
+
+# Test Error Rate
+pred.pt.cv <- predict(pt.cv,election.te, type='class')
+error.pt.cv <- calc_error_rate(pred.te,election.te$candidate)
+
+records[1,1] <- error.pt.cv.tr
+records[1,2] <- error.pt.cv
+```
+## Interpret results and tell a story
+
+When looking at the pruned tree model, the first classifying variable is 'Transit', splitting at 1.15. If 'Transit' is less than 1.15, the next split occurs ar 'White', in which the model immediately classifies a county as Donald Trump winning if the 'White' variable is greater than 51.45. It appears that is an area has less than a value of 51.45 for 'White', more variables are needed to classify, such as 'VotingAgeCitizen', 'Service', 'White', and 'Income' to classify the predicted winner of the county. 
+
+Analyzing the other side of the tree, in which 'Transit' is greater than 1.15, the next most important classifier is population of women. If 'Women' is greater than 107,370 in a county, the model directly predicts Joe Biden as the county winner. Similar to the other side of the tree, if 'Women' is less than 107,370, more variables are needed to determine the predicted winner, such as 'Minority', 'Professional', and 'White'.
+
+The results show that a county with a higher White population had a prediction of Donald Trump winning, along with lower proportions of military service, low proportions of minorities, and lower income levels tended to predict Donald Trump. Counties that represented populations with higher rates of working professionals, populations of women, and overall income were classified as Joe Biden winning their county. 
+
+16.
+```{r}
+glm.fit <- glm(candidate~., data=election.tr, family=binomial)
+summary(glm.fit)
+
+# Training Error
+prob.training <- predict(glm.fit, election.tr, type = 'response')
+
+election.train = election.tr %>%
+  mutate(pred.candidate=as.factor(ifelse(prob.training<=0.5, "Donald Trump", "Joe Biden")))
+
+error.tr.glm <- calc_error_rate(election.train$pred.candidate,election.tr$candidate)
+error.tr.glm
+
+# Test Error
+prob.test <- predict(glm.fit, election.te, type = 'response')
+election.test = election.te %>%
+  mutate(pred.candidate=as.factor(ifelse(prob.test<=0.5, "Donald Trump", "Joe Biden")))
+
+error.te.glm <- calc_error_rate(election.test$pred.candidate, election.te$candidate)
+error.te.glm
+
+records[2,1] <- error.tr.glm
+records[2,2] <- error.te.glm
+
+
+```
+
+White, VotingAgeCitizen, Professional, Service, Office, Production, Drive, Employed, PrivateWork and Unemployment are all significant variables in the logistic regression. 
+
+These are different than the decision tree analysis, which determined that Transit, White, and Woman were the three most significant variables. 
+
+When raising e to the value of the coefficient for 'White', or $$e^{-.2375}=.7886$$, we can interpret that as when all other variables are held constant, as percentage of white citizens in a state increases, the probability of voting for Joe Biden decreases by 22%. 
+
+When raising e to the value of the coefficient for 'White', or $$e^{-.2375}=.7886$$, we can interpret that as when the percentage of white citizens in a state increases, the probability of voting for Joe Biden decreases by 22%. 
+
+Similarly, we can look at Unemployment rate for each state, and $$e^{.2488}=1.28$$. As a state's unemployment proportion increases, the probability of voting for Joe Biden increases by 28%. 
+
+
+17.
+```{r}
+library(glmnet)
+x.train = model.matrix(candidate~., election.tr)[,-1]
+y.train = election.tr$candidate
+
+x.test = model.matrix(candidate~., election.te)[,-1]
+y.test = election.te$candidate
+
+# Turning Candidate into a Binary Classifier
+y.test.mod <- ifelse(y.test == "Joe Biden", 1, 0)
+y.train.mod <- ifelse(y.train == "Joe Biden", 1, 0)
+
+
+# Lasso Regression
+cv.out.ridge=cv.glmnet(x.train, y.train.mod, alpha = 1,lambda = seq(1, 50) * 1e-4)
+bestlam = cv.out.ridge$lambda.min
+bestlam
+
+grid = 10^seq(10, -2, length = 100)
+lasso.mod <- glmnet(x.train, y.train.mod, alpha=1, lambda=grid)
+lasso.pred = predict(lasso.mod, s = bestlam, newx = x.test)
+
+# Training Erorr
+lasso_test_error <- mean((lasso.pred-y.test.mod)^2)
+
+# Prediction on Test Set
+lasso.pred.2 = predict(lasso.mod, s = bestlam, newx = x.train)
+# Test Error
+lasso_training_error <- mean((lasso.pred.2-y.train.mod)^2)
+
+# Print Coefficients for Lasso Regression
+lasso.coef=predict(lasso.mod,type="coefficients",s=bestlam)[1:20,]
+lasso.coef
+
+records[3,1] <- lasso_training_error
+records[3,2] <- lasso_test_error
+
+
+records
+```
+The non-zero coefficients are Men, Women, White, VotingAgeCitizen, Poverty, Professional, Service, Office, Drive, Carpool, OtherTransp, Employed, SelfEmployed, FamilyWork, and MeanCommute. 
+
+Comparing to the unpenalized regression, we notice that the zero coefficients in the lasso regression were shown to be not significant in the logistic regression. The lasso regression is a slimmed down version that reduces insignificant variables to 0,  but they seem to generally point to the truly significant variables.
+
+```{r}
+library(ROCR)
+
+# First argument is the prob.training, second is true labels
+
+pred.pt.cv.mod <- ifelse(pred.pt.cv == "Joe Biden", 1, 0)
+election.te.mod <- ifelse(election.te$candidate == "Joe Biden", 1, 0)
+pred1 = prediction(pred.pt.cv.mod, election.te.mod)
+pred2 = prediction(prob.test, election.te.mod)
+pred3 = prediction(lasso.pred, election.te.mod)
+
+# We want TPR on the y axis and FPR on the x axis
+perf = performance(pred1, measure="tpr", x.measure="fpr")
+perf2 = performance(pred2, measure="tpr", x.measure="fpr")
+perf3 = performance(pred3, measure="tpr", x.measure="fpr")
+
+
+plot( perf, col = "red", main = "ROC curve")
+plot(perf2, add = TRUE, col = "blue")
+plot(perf3, add = TRUE, col = "green")
+legend(.85, .14, legend=c("descsion tree", "logistic regression", "lasse"),
+col=c("red", "blue", "green"), lty=1:2, cex=0.5)
+
+```
+
+We can see that the Lasso and Logistic methods are more accurate as the curves are closer to 1. The decision tree method is a little less accurate but still fairly good on the curve. As Lasso uses the least amount of variables, it may not be the absolute best model selection to get the full scope, thus logistic regression may be ideal as it has a good ROC curve with AUC close to 1. Thus for more in depth questions about the election, the logistic model maybe better suited as it has a wider range of variables being analyzed.  
+19.
+
+```{r}
+library(class)
+library(FNN)
+
+# Knn with CV to determine best k
+set.seed(66)
+allK = 1:50
+
+validation.error = rep(NA, 50)
+
+# For each number in allK, use LOOCV to find a validation error  
+for (i in allK){  
+  pred.Yval = knn.cv(train=x.train, cl=y.train, k=i) 
+  validation.error[i] = mean(pred.Yval!=y.train)
+}
+
+# Validation error for 1-NN, 2-NN, ..., 50-NN
+plot(allK, validation.error, type = "l", xlab = "k")
+title("Plot of Possible k Nearest Neighbors to find best value of K")
+
+# Best number of neighbors
+#     if there is a tie, pick larger number of neighbors for simpler model
+numneighbor = max(allK[validation.error == min(validation.error)])
+numneighbor
+
+set.seed(67)
+
+# Best k used 
+pred.YTest = knn(train=x.train, test=x.test, cl=y.train, k=numneighbor)
+
+# Confusion matrix
+conf.matrix = table(predicted=pred.YTest, true=y.test)
+conf.matrix
+
+# Test error rate
+test.error.rate.knn <- 1 - sum(diag(conf.matrix)/sum(conf.matrix))
+test.error.rate.knn
+
+records
+```
+Comparing the Test Error Rate for Knn, Random Forest, Decision Trees, Logistic and Lasso Regression, we see that Logistic Regression and Random Forest had the lowest test error rates for classifying candidate. The Knn-classifier and the Decision tree appeared to perform the worst in terms of test error rate.
+
+20.
+```{r}
+#We will use the county winner and how much they won by to predict how many senators from each party they will elect. 
+
+
+county.with.senators.predictoins = county.winner %>% mutate(Senators =
+                     case_when(party == "DEM" & pct > .65 ~ "DEM DEM", 
+                               party == "DEM" & pct < .65 ~ "DEM REP",
+                               party == "REP" & pct > .65 ~ "REP REP",
+                               party == "REP" & pct < .65 ~ "DEM REP")
+)
+
+state.with.senators.predictoins = state.winner %>% mutate(Senators =
+                     case_when(party == "DEM" & pct > .65 ~ "DEM DEM", 
+                               party == "DEM" & pct < .65 ~ "DEM REP",
+                               party == "REP" & pct > .65 ~ "REP REP",
+                               party == "REP" & pct < .65 ~ "DEM REP")
+)
+
+state.with.senators.predictoins.sub = state.with.senators.predictoins %>%
+  select(c('state', 'Senators'))
+
+
+
+true_column_state <- c("DEM DEM", "DEM DEM", "REP REP", "DEM DEM","DEM DEM","REP REP","DEM DEM","REP REP","REP REP","REP REP","REP REP","REP REP","REP DEM","DEM DEM","DEM DEM","DEM DEM","REP REP","REP REP","DEM REP","DEM REP","REP REP","DEM DEM","DEM DEM","DEM DEM","DEM DEM","DEM DEM","REP REP","REP REP","DEM REP","REP REP","DEM DEM","DEM REP","DEM DEM","REP REP","REP REP","REP REP","REP REP","DEM REP","DEM DEM","DEM DEM","DEM DEM","DEM REP","DEM REP","REP REP","REP REP","REP REP","DEM DEM","DEM DEM","DEM DEM","DEM DEM", "DEM DEM")
+
+true_senator_df <- data.frame(state.with.senators.predictoins$state, true_column_state)
+
+
+error_rate_of_new_prediction <- calc_error_rate(state.with.senators.predictoins.sub,true_senator_df)
+error_rate_of_new_prediction
+```
+21.
+
+In this analysis, we were able to visualize what census variables were significant predictors in a candidate winning a county or state. We found consistently that proportion of White citizens in an area and Employment Rate was a significant predictor. 
+
+
+
+
+
+
